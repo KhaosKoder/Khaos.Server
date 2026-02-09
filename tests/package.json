@@ -1,0 +1,22 @@
+{
+  "name": "khaos-tests",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "npx playwright test",
+    "test:api": "npx playwright test api.spec.ts",
+    "test:ui": "npx playwright test ui.spec.ts",
+    "test:headed": "npx playwright test --headed",
+    "test:debug": "npx playwright test --debug",
+    "test:interactive": "npx playwright test --ui",
+    "report": "npx playwright show-report test-report"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "E2E tests for Khaos Server",
+  "devDependencies": {
+    "@playwright/test": "^1.58.2",
+    "playwright": "^1.58.2"
+  }
+}
