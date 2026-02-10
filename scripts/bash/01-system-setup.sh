@@ -88,11 +88,27 @@ mkdir -p /opt/khaos/apps/api
 mkdir -p /opt/khaos/apps/web
 mkdir -p /opt/khaos/scripts
 mkdir -p /opt/khaos/config
+mkdir -p /opt/khaos/publish/api
+mkdir -p /opt/khaos/publish/web
 mkdir -p /var/log/khaos
 
-# Set ownership to khaos user
-chown -R khaos:khaos /opt/khaos
-chown -R khaos:khaos /var/log/khaos
+# Copy management scripts from cache
+SCRIPT_CACHE="/mnt/khaos-cache/scripts/bash"
+if [ -d "$SCRIPT_CACHE" ]; then
+    for script in dev-start.sh dev-stop.sh build.sh publish.sh deploy.sh prod-start.sh prod-stop.sh clean.sh test.sh status.sh; do
+        if [ -f "$SCRIPT_CACHE/$script" ]; then
+            cp "$SCRIPT_CACHE/$script" /opt/khaos/scripts/
+            chmod +x /opt/khaos/scripts/$script
+        fi
+    done
+    log "INFO" "Create Dirs" "Management scripts copied to /opt/khaos/scripts"
+fi
+
+# Set ownership to khaos user (if exists)
+if id khaos &>/dev/null; then
+    chown -R khaos:khaos /opt/khaos
+    chown -R khaos:khaos /var/log/khaos
+fi
 
 log "SUCCESS" "Create Dirs" "Directory structure created at /opt/khaos"
 

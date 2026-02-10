@@ -88,6 +88,8 @@ Multiple instances supported simultaneously. User provides the name during creat
 
 ## Port Allocation
 
+### Default Ports (BasePort = 3000)
+
 | Service | Internal Port | Exposed Via Nginx |
 |---------|---------------|-------------------|
 | Vue Dev Server | 3000 | `/` (root) |
@@ -97,6 +99,26 @@ Multiple instances supported simultaneously. User provides the name during creat
 | PostgreSQL | 5432 | Not exposed externally |
 | Nginx HTTP | 80 | Redirects to HTTPS |
 | Nginx HTTPS | 443 | Main entry point (SSL) |
+
+### Multi-Instance Port Configuration
+
+Each instance can use a different base port to avoid conflicts. Ports are calculated from the base:
+
+| Service | Offset | BasePort=3000 | BasePort=4000 |
+|---------|--------|---------------|---------------|
+| Web (Vue) | +0 | 3000 | 4000 |
+| API | +2000 | 5000 | 6000 |
+| Ollama | +8434 | 11434 | 12434 |
+| Redis | +3379 | 6379 | 7379 |
+| PostgreSQL | +2432 | 5432 | 6432 |
+
+Create instances with custom base ports:
+```powershell
+.\01-create-instance.ps1 -Name "Primary" -BasePort 3000
+.\01-create-instance.ps1 -Name "Secondary" -BasePort 4000
+```
+
+Port configuration is stored in `/etc/khaos/khaos.conf` inside each WSL instance.
 
 ---
 
@@ -301,8 +323,110 @@ CREATE TABLE kv_store (
 
 ---
 
+## Development Workflow
+
+### Prerequisites
+- VS Code with the "WSL" extension (ms-vscode-remote.remote-wsl)
+- Node.js 22+ on Windows (for running Vue dev tools)
+- .NET 10 SDK on Windows (optional, for local debugging)
+
+### Connecting to Your Instance
+
+```bash
+# From PowerShell, enter the WSL instance
+wsl -d khaos-<name> -u khaos
+
+# Inside WSL, you're now in the Linux environment
+cd /opt/khaos/apps
+```
+
+### Working on the C# API
+
+```bash
+# Navigate to the API project
+cd /opt/khaos/apps/api
+
+# Run with hot reload (development mode)
+dotnet watch run --urls http://0.0.0.0:5000
+
+# Or just run normally
+dotnet run --urls http://0.0.0.0:5000
+```
+
+With VS Code Remote-WSL:
+1. Press F1 → "WSL: Connect to WSL"
+2. Select your instance (khaos-<name>)
+3. Open folder `/opt/khaos/apps/api`
+4. Use F5 to debug with breakpoints
+
+### Working on the Vue Frontend
+
+```bash
+# Navigate to the web project
+cd /opt/khaos/apps/web
+
+# Run with hot reload
+npm run dev -- --host 0.0.0.0 --port 3000
+
+# Build for production
+npm run build
+
+# Run linting
+npm run lint
+```
+
+With VS Code Remote-WSL:
+1. Connect to your WSL instance
+2. Open folder `/opt/khaos/apps/web`
+3. Use the integrated terminal for npm commands
+4. Vue DevTools browser extension works with the dev server
+
+### Environment Variables
+
+All Khaos configuration is available via environment variables, loaded from `/etc/khaos/khaos.conf`:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `KHAOS_INSTANCE_NAME` | Display name | "Khaos Server" |
+| `KHAOS_API_PORT` | .NET API port | 5000 |
+| `KHAOS_WEB_PORT` | Vue dev server port | 3000 |
+| `KHAOS_OLLAMA_PORT` | Ollama server port | 11434 |
+| `KHAOS_REDIS_PORT` | Redis port | 6379 |
+| `KHAOS_POSTGRES_PORT` | PostgreSQL port | 5432 |
+| `KHAOS_CACHE_PATH` | Windows cache mount | /mnt/khaos-cache |
+
+### Viewing Logs
+
+```bash
+# API logs
+tail -f /var/log/khaos/api.log
+
+# Frontend logs  
+tail -f /var/log/khaos/web.log
+
+# Ollama logs
+tail -f /var/log/khaos/ollama.log
+
+# Startup log
+tail -f /var/log/khaos/startup.log
+```
+
+### Restarting Services
+
+```bash
+# Using the startup script
+sudo /opt/khaos/scripts/00-khaos-startup.sh
+
+# Or restart individual services (if using systemd)
+sudo systemctl restart khaos-api
+sudo systemctl restart khaos-web
+sudo systemctl restart ollama
+```
+
+---
+
 ## Documentation TODO
-- [ ] README.md with quick start
+- [x] Development workflow documentation
 - [ ] TROUBLESHOOTING.md
 
 ---

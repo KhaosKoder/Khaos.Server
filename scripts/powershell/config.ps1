@@ -55,6 +55,10 @@ $script:KhaosConfig = @{
     }
     
     # Ports
+    # Default base port is 3000. Use Get-PortsFromBase to calculate ports for other instances.
+    # Port offsets from base: Web=Base, Api=Base+2000, Ollama=Base+8434, Redis=Base+3379, Postgres=Base+2432
+    DefaultBasePort = 3000
+    
     Ports = @{
         Vue = 3000
         Api = 5000
@@ -69,9 +73,32 @@ $script:KhaosConfig = @{
     WslCacheMount = "/mnt/khaos-cache"
 }
 
+# Calculate ports from a base port
+function Get-PortsFromBase {
+    param([int]$BasePort = 3000)
+    
+    return @{
+        Vue = $BasePort
+        Api = $BasePort + 2000       # 3000 -> 5000, 4000 -> 6000
+        Ollama = $BasePort + 8434    # 3000 -> 11434, 4000 -> 12434
+        Redis = $BasePort + 3379     # 3000 -> 6379, 4000 -> 7379
+        Postgres = $BasePort + 2432  # 3000 -> 5432, 4000 -> 6432
+        NginxHttp = 80
+        NginxHttps = 443
+    }
+}
+
 # Export config
 function Get-KhaosConfig {
-    return $script:KhaosConfig
+    param([int]$BasePort = 0)
+    
+    $config = $script:KhaosConfig.Clone()
+    
+    if ($BasePort -gt 0) {
+        $config.Ports = Get-PortsFromBase -BasePort $BasePort
+    }
+    
+    return $config
 }
 
 # Get default model
@@ -96,6 +123,22 @@ function Show-AvailableModels {
         $color = if ($cached) { "Green" } else { "White" }
         Write-Host ("{0,-20} {1,-10} {2,-30} {3} {4}" -f $model.Name, $model.Size, $model.Description, $default, $status) -ForegroundColor $color
     }
+    Write-Host ""
+}
+
+# Display port configuration
+function Show-PortConfig {
+    param([int]$BasePort = 3000)
+    
+    $ports = Get-PortsFromBase -BasePort $BasePort
+    
+    Write-Host "`nPort Configuration (BasePort=$BasePort):" -ForegroundColor Cyan
+    Write-Host ("-" * 50)
+    Write-Host "  Vue/Web:    $($ports.Vue)"
+    Write-Host "  API:        $($ports.Api)"
+    Write-Host "  Ollama:     $($ports.Ollama)"
+    Write-Host "  Redis:      $($ports.Redis)"
+    Write-Host "  PostgreSQL: $($ports.Postgres)"
     Write-Host ""
 }
 

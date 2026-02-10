@@ -11,6 +11,13 @@ YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
+# Load configuration
+if [ -f /etc/khaos/khaos.conf ]; then
+    source /etc/khaos/khaos.conf
+else
+    KHAOS_REDIS_PORT=6379
+fi
+
 log() {
     local status=$1
     local step=$2
@@ -59,11 +66,11 @@ log "START" "Configure" "Configuring Redis..."
 cp /etc/redis/redis.conf /etc/redis/redis.conf.backup
 
 # Configure for local use
-cat >> /etc/redis/redis.conf << 'EOF'
+cat >> /etc/redis/redis.conf << EOF
 
 # Khaos configuration
 bind 127.0.0.1
-port 6379
+port $KHAOS_REDIS_PORT
 daemonize yes
 supervised no
 pidfile /var/run/redis/redis-server.pid
@@ -95,8 +102,8 @@ else
     redis-server /etc/redis/redis.conf
     sleep 2
     
-    if redis-cli ping > /dev/null 2>&1; then
-        log "SUCCESS" "Start Redis" "Redis started manually"
+    if redis-cli -p "$KHAOS_REDIS_PORT" ping > /dev/null 2>&1; then
+        log "SUCCESS" "Start Redis" "Redis started manually on port $KHAOS_REDIS_PORT"
     else
         log "WARN" "Start Redis" "Redis may not be running properly"
     fi
@@ -107,8 +114,8 @@ fi
 # ============================================================================
 log "START" "Test Redis" "Testing Redis connection..."
 
-if redis-cli ping | grep -q "PONG"; then
-    log "SUCCESS" "Test Redis" "Redis is responding"
+if redis-cli -p "$KHAOS_REDIS_PORT" ping | grep -q "PONG"; then
+    log "SUCCESS" "Test Redis" "Redis is responding on port $KHAOS_REDIS_PORT"
 else
     log "WARN" "Test Redis" "Redis did not respond to ping"
 fi
@@ -118,7 +125,7 @@ fi
 # ============================================================================
 cat > /opt/khaos/config/redis.conf << EOF
 REDIS_HOST=localhost
-REDIS_PORT=6379
+REDIS_PORT=$KHAOS_REDIS_PORT
 REDIS_VERSION=$REDIS_VERSION
 EOF
 
@@ -130,6 +137,6 @@ log "SUCCESS" "Save Config" "Redis configuration saved"
 echo ""
 echo -e "${GREEN}✓ Redis setup completed!${NC}"
 echo "  Version: $REDIS_VERSION"
-echo "  Host: localhost:6379"
-echo "  Test: redis-cli ping"
+echo "  Host: localhost:$KHAOS_REDIS_PORT"
+echo "  Test: redis-cli -p $KHAOS_REDIS_PORT ping"
 echo ""

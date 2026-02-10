@@ -11,6 +11,13 @@ YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
+# Load configuration
+if [ -f /etc/khaos/khaos.conf ]; then
+    source /etc/khaos/khaos.conf
+else
+    KHAOS_POSTGRES_PORT=5432
+fi
+
 log() {
     local status=$1
     local step=$2
@@ -123,7 +130,18 @@ log "SUCCESS" "Create Table" "kv_store table created"
 # ============================================================================
 log "START" "Configure" "Configuring PostgreSQL for local connections..."
 
+PG_CONF="/etc/postgresql/16/main/postgresql.conf"
 PG_HBA="/etc/postgresql/16/main/pg_hba.conf"
+
+# Configure custom port
+if [ "$KHAOS_POSTGRES_PORT" != "5432" ]; then
+    sed -i "s/^port = .*/port = $KHAOS_POSTGRES_PORT/" "$PG_CONF" 2>/dev/null || true
+    sed -i "s/^#port = .*/port = $KHAOS_POSTGRES_PORT/" "$PG_CONF" 2>/dev/null || true
+    # Ensure port is set
+    if ! grep -q "^port = $KHAOS_POSTGRES_PORT" "$PG_CONF"; then
+        echo "port = $KHAOS_POSTGRES_PORT" >> "$PG_CONF"
+    fi
+fi
 
 # Allow local connections with password
 if ! grep -q "khaos" "$PG_HBA"; then
@@ -145,8 +163,8 @@ log "SUCCESS" "Configure" "PostgreSQL configured"
 # ============================================================================
 log "START" "Test" "Testing PostgreSQL connection..."
 
-if PGPASSWORD=khaos psql -U khaos -d khaosdb -h localhost -c "SELECT 1;" > /dev/null 2>&1; then
-    log "SUCCESS" "Test" "PostgreSQL connection successful"
+if PGPASSWORD=khaos psql -U khaos -d khaosdb -h localhost -p "$KHAOS_POSTGRES_PORT" -c "SELECT 1;" > /dev/null 2>&1; then
+    log "SUCCESS" "Test" "PostgreSQL connection successful on port $KHAOS_POSTGRES_PORT"
 else
     log "WARN" "Test" "Could not connect to PostgreSQL"
 fi
@@ -156,11 +174,11 @@ fi
 # ============================================================================
 cat > /opt/khaos/config/postgres.conf << EOF
 PG_HOST=localhost
-PG_PORT=5432
+PG_PORT=$KHAOS_POSTGRES_PORT
 PG_DATABASE=khaosdb
 PG_USER=khaos
 PG_PASSWORD=khaos
-PG_CONNECTION_STRING=Host=localhost;Database=khaosdb;Username=khaos;Password=khaos
+PG_CONNECTION_STRING=Host=localhost;Port=$KHAOS_POSTGRES_PORT;Database=khaosdb;Username=khaos;Password=khaos
 EOF
 
 log "SUCCESS" "Save Config" "PostgreSQL configuration saved"
@@ -173,5 +191,5 @@ echo -e "${GREEN}✓ PostgreSQL setup completed!${NC}"
 echo "  Version: $PG_VERSION"
 echo "  Database: khaosdb"
 echo "  User: khaos / khaos"
-echo "  Port: 5432"
+echo "  Port: $KHAOS_POSTGRES_PORT"
 echo ""

@@ -716,6 +716,7 @@ onMounted(() => {
 
 .assistant-message {
   background-color: rgb(var(--v-theme-surface-variant));
+  color: rgb(var(--v-theme-on-surface-variant));
   border-bottom-left-radius: 4px;
 }
 

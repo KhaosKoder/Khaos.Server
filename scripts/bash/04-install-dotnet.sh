@@ -29,6 +29,13 @@ log() {
     echo "[$timestamp] [$step] [$status] $message" >> /var/log/khaos/setup.log
 }
 
+# Load configuration
+if [ -f /etc/khaos/khaos.conf ]; then
+    source /etc/khaos/khaos.conf
+else
+    KHAOS_API_PORT=5000
+fi
+
 echo ""
 echo "╔═══════════════════════════════════════════════════════════════════╗"
 echo "║                  KHAOS - INSTALL .NET                             ║"
@@ -141,24 +148,48 @@ fi
 # ============================================================================
 log "START" "Build" "Building API project..."
 
-if dotnet build -c Release -q; then
+# Clean any previous build artifacts that may cause issues
+rm -rf "$API_PATH/bin" "$API_PATH/obj" 2>/dev/null || true
+
+if dotnet build -c Release --nologo; then
     log "SUCCESS" "Build" "API project built successfully"
 else
     log "WARN" "Build" "Build had warnings or errors"
 fi
 
 # ============================================================================
-# STEP 6: Set ownership
+# STEP 6: Publish for production
 # ============================================================================
-chown -R khaos:khaos "$API_PATH"
+log "START" "Publish" "Publishing API for production..."
+
+API_PUBLISH="/opt/khaos/publish/api"
+rm -rf "$API_PUBLISH"
+mkdir -p "$API_PUBLISH"
+
+if dotnet publish -c Release -o "$API_PUBLISH" --nologo; then
+    log "SUCCESS" "Publish" "API published to $API_PUBLISH"
+else
+    log "FAIL" "Publish" "Failed to publish API"
+    exit 1
+fi
 
 # ============================================================================
-# STEP 7: Save config
+# STEP 7: Set ownership
+# ============================================================================
+if id khaos &>/dev/null; then
+    chown -R khaos:khaos "$API_PATH"
+    chown -R khaos:khaos "$API_PUBLISH"
+fi
+
+# ============================================================================
+# STEP 8: Save config
 # ============================================================================
 cat > /opt/khaos/config/dotnet.conf << EOF
 DOTNET_VERSION=$DOTNET_VERSION
 API_PATH=$API_PATH
-API_PORT=5000
+API_PUBLISH=$API_PUBLISH
+API_PORT=$KHAOS_API_PORT
+DEV_API_PORT=$((KHAOS_API_PORT + 1))
 EOF
 
 log "SUCCESS" "Save Config" ".NET configuration saved"
@@ -169,6 +200,8 @@ log "SUCCESS" "Save Config" ".NET configuration saved"
 echo ""
 echo -e "${GREEN}✓ .NET setup completed!${NC}"
 echo "  SDK: $DOTNET_VERSION"
-echo "  API: $API_PATH"
-echo "  Run: cd $API_PATH && dotnet run"
+echo "  Source: $API_PATH"
+echo "  Published: $API_PUBLISH"
+echo "  Prod Port: $KHAOS_API_PORT"
+echo "  Dev Port: $((KHAOS_API_PORT + 1))"
 echo ""

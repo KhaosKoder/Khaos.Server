@@ -49,46 +49,47 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-KhaosLog -Status "SUCCESS" -Step "Start Instance" -Message "WSL instance is running"
 
-# With systemd enabled, services start automatically when WSL boots
-# Just verify they're running
-Write-KhaosLog -Status "START" -Step "Verify Services" -Message "Checking systemd services..."
-
-$services = @("redis-server", "postgresql", "nginx", "khaos-api", "khaos-web")
-$allRunning = $true
-
-foreach ($service in $services) {
-    $status = wsl -d $InstanceName -u root -- systemctl is-active $service 2>&1
-    if ($status -eq "active") {
-        Write-KhaosLog -Status "SUCCESS" -Step $service -Message "Running"
-    } else {
-        Write-KhaosLog -Status "WARN" -Step $service -Message "Not running, attempting start..."
-        wsl -d $InstanceName -u root -- systemctl start $service 2>&1 | Out-Null
-        $status = wsl -d $InstanceName -u root -- systemctl is-active $service 2>&1
-        if ($status -eq "active") {
-            Write-KhaosLog -Status "SUCCESS" -Step $service -Message "Started successfully"
-        } else {
-            Write-KhaosLog -Status "FAIL" -Step $service -Message "Failed to start"
-            $allRunning = $false
-        }
-    }
+# Check if systemd is active (PID 1 should be systemd)
+$pid1 = wsl -d $InstanceName -- ps -p 1 -o comm= 2>&1
+if ($pid1 -match "systemd") {
+    Write-KhaosLog -Status "INFO" -Step "Systemd" -Message "Systemd is active - services will auto-start"
+    
+    # Wait for systemd services to start
+    Start-Sleep -Seconds 3
+    
+    # Check service status
+    $serviceStatus = wsl -d $InstanceName -u root -- systemctl is-active khaos-api nginx redis-server 2>&1
+    Write-KhaosLog -Status "INFO" -Step "Services" -Message "Service status: $($serviceStatus -join ', ')"
+} else {
+    # Fallback: No systemd, use manual start script
+    Write-KhaosLog -Status "WARN" -Step "Systemd" -Message "Systemd not active, using manual start..."
+    wsl -d $InstanceName -u root -- /opt/khaos/scripts/prod-start.sh 2>&1
+    Start-Sleep -Seconds 3
 }
 
-# Also check Ollama (runs independently, not via systemd)
-$ollamaCheck = wsl -d $InstanceName -u root -- curl -s -o /dev/null -w "%{http_code}" http://localhost:11434 2>&1
-if ($ollamaCheck -eq "200") {
-    Write-KhaosLog -Status "SUCCESS" -Step "ollama" -Message "Running"
+# Verify services are running by checking ports
+$ssPorts = wsl -d $InstanceName -u root -- ss -tlnp 2>&1
+$config = wsl -d $InstanceName -u root -- cat /etc/khaos/khaos.conf 2>&1
+$webPort = if ($config -match 'KHAOS_WEB_PORT=(\d+)') { $Matches[1] } else { "3000" }
+$apiPort = if ($config -match 'KHAOS_API_PORT=(\d+)') { $Matches[1] } else { "5000" }
+
+$webRunning = $ssPorts -match ":$webPort\b"
+$apiRunning = $ssPorts -match ":$apiPort\b"
+
+if ($webRunning -and $apiRunning) {
+    Write-KhaosLog -Status "SUCCESS" -Step "Start Services" -Message "All services are running"
 } else {
-    Write-KhaosLog -Status "WARN" -Step "ollama" -Message "Starting Ollama..."
-    wsl -d $InstanceName -u root -- bash -c "ollama serve > /dev/null 2>&1 &"
+    $missing = @()
+    if (-not $webRunning) { $missing += "Web/Nginx ($webPort)" }
+    if (-not $apiRunning) { $missing += "API ($apiPort)" }
+    Write-KhaosLog -Status "WARN" -Step "Start Services" -Message "Some services may not be ready: $($missing -join ', ')"
 }
 
 Write-Host ""
-if ($allRunning) {
-    Write-KhaosLog -Status "SUCCESS" -Step "Complete" -Message "$InstanceName is ready!"
-} else {
-    Write-KhaosLog -Status "WARN" -Step "Complete" -Message "$InstanceName started with some service issues"
-}
+Write-KhaosLog -Status "SUCCESS" -Step "Complete" -Message "$InstanceName is ready!"
 Write-Host ""
 Write-Host "  Open in browser: " -NoNewline -ForegroundColor White
-Write-Host "https://localhost" -ForegroundColor Green
+Write-Host "http://localhost:$webPort" -ForegroundColor Green
+Write-Host ""
+Write-Host "  For development: wsl -d $InstanceName -u root -- /opt/khaos/scripts/dev-start.sh" -ForegroundColor Gray
 Write-Host ""

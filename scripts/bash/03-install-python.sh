@@ -126,8 +126,10 @@ source /opt/khaos/venv/bin/activate
 EOF
 chmod +x /opt/khaos/activate.sh
 
-# Set ownership
-chown -R khaos:khaos /opt/khaos
+# Set ownership (if user exists)
+if id khaos &>/dev/null; then
+    chown -R khaos:khaos /opt/khaos
+fi
 
 log "SUCCESS" "Save Config" "Python configuration saved"
 

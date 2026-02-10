@@ -29,6 +29,14 @@ log() {
     echo "[$timestamp] [$step] [$status] $message" >> /var/log/khaos/setup.log
 }
 
+# Load configuration
+if [ -f /etc/khaos/khaos.conf ]; then
+    source /etc/khaos/khaos.conf
+else
+    KHAOS_WEB_PORT=3000
+    KHAOS_API_PORT=5000
+fi
+
 echo ""
 echo "╔═══════════════════════════════════════════════════════════════════╗"
 echo "║                  KHAOS - INSTALL NODE + VUE                       ║"
@@ -114,18 +122,45 @@ else
 fi
 
 # ============================================================================
-# STEP 5: Set ownership
+# STEP 5: Build for production
 # ============================================================================
-chown -R khaos:khaos "$WEB_PATH"
+log "START" "Build" "Building Vue app for production..."
+
+WEB_PUBLISH="/opt/khaos/publish/web"
+rm -rf "$WEB_PUBLISH"
+mkdir -p "$WEB_PUBLISH"
+
+cd "$WEB_PATH"
+export VITE_API_URL="http://localhost:$KHAOS_API_PORT"
+
+if npm run build 2>/dev/null; then
+    # Copy dist to publish directory
+    cp -r "$WEB_PATH/dist/"* "$WEB_PUBLISH/"
+    log "SUCCESS" "Build" "Vue app built and published to $WEB_PUBLISH"
+else
+    log "FAIL" "Build" "Failed to build Vue app"
+    exit 1
+fi
 
 # ============================================================================
-# STEP 6: Save config
+# STEP 6: Set ownership
+# ============================================================================
+if id khaos &>/dev/null; then
+    chown -R khaos:khaos "$WEB_PATH"
+    chown -R khaos:khaos "$WEB_PUBLISH"
+fi
+
+# ============================================================================
+# STEP 7: Save config
 # ============================================================================
 cat > /opt/khaos/config/node.conf << EOF
 NODE_VERSION=$NODE_VERSION
 NPM_VERSION=$NPM_VERSION
 WEB_PATH=$WEB_PATH
-WEB_PORT=3000
+WEB_PUBLISH=$WEB_PUBLISH
+WEB_PORT=$KHAOS_WEB_PORT
+DEV_WEB_PORT=$((KHAOS_WEB_PORT + 1))
+API_PORT=$KHAOS_API_PORT
 EOF
 
 log "SUCCESS" "Save Config" "Node configuration saved"
@@ -136,6 +171,8 @@ log "SUCCESS" "Save Config" "Node configuration saved"
 echo ""
 echo -e "${GREEN}✓ Node + Vue setup completed!${NC}"
 echo "  Node: $NODE_VERSION"
-echo "  Web: $WEB_PATH"
-echo "  Run: cd $WEB_PATH && npm run dev"
+echo "  Source: $WEB_PATH"
+echo "  Published: $WEB_PUBLISH"
+echo "  Prod Port: $KHAOS_WEB_PORT (served by nginx)"
+echo "  Dev Port: $((KHAOS_WEB_PORT + 1)) (vite dev server)"
 echo ""

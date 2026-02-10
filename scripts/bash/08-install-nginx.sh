@@ -11,6 +11,15 @@ YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
+# Load configuration
+if [ -f /etc/khaos/khaos.conf ]; then
+    source /etc/khaos/khaos.conf
+else
+    KHAOS_WEB_PORT=3000
+    KHAOS_API_PORT=5000
+    KHAOS_OLLAMA_PORT=11434
+fi
+
 log() {
     local status=$1
     local step=$2
@@ -78,27 +87,13 @@ log "SUCCESS" "Generate Cert" "Self-signed certificate generated"
 # ============================================================================
 log "START" "Configure" "Creating Nginx configuration..."
 
-cat > /etc/nginx/sites-available/khaos << 'EOF'
+cat > /etc/nginx/sites-available/khaos << EOF
 # Khaos Server Nginx Configuration
+# Serves static Vue files and proxies API requests
 
-# Redirect HTTP to HTTPS
 server {
-    listen 80;
+    listen $KHAOS_WEB_PORT;
     server_name localhost;
-    return 301 https://$host$request_uri;
-}
-
-# Main HTTPS server
-server {
-    listen 443 ssl http2;
-    server_name localhost;
-
-    # SSL Configuration
-    ssl_certificate /etc/nginx/ssl/khaos.crt;
-    ssl_certificate_key /etc/nginx/ssl/khaos.key;
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256;
-    ssl_prefer_server_ciphers off;
 
     # Logging
     access_log /var/log/nginx/khaos-access.log;
@@ -106,37 +101,40 @@ server {
 
     # API proxy
     location /api/ {
-        proxy_pass http://127.0.0.1:5000;
+        proxy_pass http://127.0.0.1:$KHAOS_API_PORT;
         proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_cache_bypass $http_upgrade;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
         proxy_read_timeout 300s;
         proxy_connect_timeout 75s;
     }
 
     # Ollama proxy (optional, for direct LLM access)
     location /ollama/ {
-        rewrite ^/ollama/(.*) /$1 break;
-        proxy_pass http://127.0.0.1:11434;
+        rewrite ^/ollama/(.*) /\$1 break;
+        proxy_pass http://127.0.0.1:$KHAOS_OLLAMA_PORT;
         proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
         proxy_read_timeout 300s;
     }
 
-    # Frontend (Vue dev server or static files)
+    # Frontend - serve static files from published Vue build
     location / {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_cache_bypass $http_upgrade;
+        root /opt/khaos/publish/web;
+        index index.html;
+        try_files \$uri \$uri/ /index.html;
+        
+        # Cache static assets
+        location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2)$ {
+            expires 1y;
+            add_header Cache-Control "public, immutable";
+        }
     }
 }
 EOF
@@ -165,13 +163,26 @@ fi
 # ============================================================================
 log "START" "Start Nginx" "Starting Nginx..."
 
+# Stop any existing nginx first
+pkill -9 nginx 2>/dev/null || true
+sleep 1
+
+# Remove stale PID file
+rm -f /run/nginx.pid 2>/dev/null || true
+
 if pidof systemd > /dev/null 2>&1; then
     systemctl enable nginx 2>/dev/null || true
-    systemctl restart nginx 2>/dev/null || true
+    systemctl start nginx 2>/dev/null || true
     log "SUCCESS" "Start Nginx" "Nginx started via systemd"
 else
-    service nginx restart 2>/dev/null || nginx -s reload
-    log "SUCCESS" "Start Nginx" "Nginx started"
+    # Start nginx directly
+    nginx 2>/dev/null || true
+    sleep 1
+    if pgrep nginx > /dev/null; then
+        log "SUCCESS" "Start Nginx" "Nginx started"
+    else
+        log "WARN" "Start Nginx" "Nginx may not have started (port 80/443 may be in use)"
+    fi
 fi
 
 # ============================================================================
@@ -191,10 +202,9 @@ log "SUCCESS" "Save Config" "Nginx configuration saved"
 # ============================================================================
 echo ""
 echo -e "${GREEN}✓ Nginx setup completed!${NC}"
-echo "  HTTP:  http://localhost (redirects to HTTPS)"
-echo "  HTTPS: https://localhost"
+echo "  Listens on port $KHAOS_WEB_PORT"
 echo "  Routes:"
-echo "    /        -> Vue frontend (port 3000)"
-echo "    /api/*   -> .NET API (port 5000)"
-echo "    /ollama/* -> Ollama API (port 11434)"
+echo "    /         -> Static files from /opt/khaos/publish/web"
+echo "    /api/*    -> .NET API (port $KHAOS_API_PORT)"
+echo "    /ollama/* -> Ollama API (port $KHAOS_OLLAMA_PORT)"
 echo ""

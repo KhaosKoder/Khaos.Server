@@ -4,6 +4,12 @@ using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Configure default URL if not set via command line
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.ListenAnyIP(int.Parse(Environment.GetEnvironmentVariable("KHAOS_API_PORT") ?? "5000"));
+});
+
 // Add services
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -18,7 +24,8 @@ builder.Services.AddCors(options =>
 // Redis connection
 builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
 {
-    var config = ConfigurationOptions.Parse("localhost:6379");
+    var redisPort = Environment.GetEnvironmentVariable("KHAOS_REDIS_PORT") ?? "6379";
+    var config = ConfigurationOptions.Parse($"localhost:{redisPort}");
     config.AbortOnConnectFail = false;
     config.AllowAdmin = true;
     return ConnectionMultiplexer.Connect(config);
@@ -27,7 +34,8 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
 // HttpClient for Ollama
 builder.Services.AddHttpClient("Ollama", client =>
 {
-    client.BaseAddress = new Uri("http://localhost:11434");
+    var ollamaPort = Environment.GetEnvironmentVariable("KHAOS_OLLAMA_PORT") ?? "11434";
+    client.BaseAddress = new Uri($"http://localhost:{ollamaPort}");
     client.Timeout = TimeSpan.FromMinutes(5);
 });
 
@@ -38,6 +46,43 @@ app.UseSwaggerUI();
 app.UseCors();
 
 // ============================================================================
+// Instance Info - provides instance name, ports, and paths
+// ============================================================================
+app.MapGet("/api/instance", () =>
+{
+    var apiPort = Environment.GetEnvironmentVariable("KHAOS_API_PORT") ?? "5000";
+    var webPort = Environment.GetEnvironmentVariable("KHAOS_WEB_PORT") ?? "3000";
+    var ollamaPort = Environment.GetEnvironmentVariable("KHAOS_OLLAMA_PORT") ?? "11434";
+    var redisPort = Environment.GetEnvironmentVariable("KHAOS_REDIS_PORT") ?? "6379";
+    var postgresPort = Environment.GetEnvironmentVariable("KHAOS_POSTGRES_PORT") ?? "5432";
+    
+    return Results.Ok(new
+    {
+        name = Environment.GetEnvironmentVariable("KHAOS_INSTANCE_NAME") ?? "Khaos Server",
+        ports = new
+        {
+            api = int.Parse(apiPort),
+            web = int.Parse(webPort),
+            ollama = int.Parse(ollamaPort),
+            redis = int.Parse(redisPort),
+            postgres = int.Parse(postgresPort)
+        },
+        paths = new
+        {
+            models = "/usr/share/ollama/.ollama/models",
+            apps = "/opt/khaos/apps",
+            cache = Environment.GetEnvironmentVariable("KHAOS_CACHE_PATH") ?? "/mnt/khaos-cache",
+            logs = "/var/log/khaos"
+        },
+        urls = new
+        {
+            swagger = $"http://localhost:{apiPort}/swagger",
+            web = $"http://localhost:{webPort}"
+        }
+    });
+});
+
+// ============================================================================
 // Health Check
 // ============================================================================
 app.MapGet("/api/health", async (IConnectionMultiplexer redis, IHttpClientFactory httpFactory) =>
@@ -45,7 +90,8 @@ app.MapGet("/api/health", async (IConnectionMultiplexer redis, IHttpClientFactor
     var health = new Dictionary<string, object>
     {
         ["status"] = "healthy",
-        ["timestamp"] = DateTime.UtcNow
+        ["timestamp"] = DateTime.UtcNow,
+        ["instance"] = Environment.GetEnvironmentVariable("KHAOS_INSTANCE_NAME") ?? "Khaos Server"
     };
 
     // Check Redis
@@ -176,23 +222,24 @@ app.MapGet("/api/conversations", async (IConnectionMultiplexer redis) =>
     var server = redis.GetServer(redis.GetEndPoints().First());
     var keys = server.Keys(pattern: "conversation:*").ToList();
 
-    var conversations = new List<object>();
+    var conversations = new List<dynamic>();
     foreach (var key in keys)
     {
         var data = await db.StringGetAsync(key);
         if (data.HasValue)
         {
             var conv = JsonSerializer.Deserialize<JsonElement>(data.ToString());
+            var createdAtStr = conv.TryGetProperty("createdAt", out var c) ? c.GetString() : null;
             conversations.Add(new
             {
                 id = key.ToString().Replace("conversation:", ""),
                 name = conv.TryGetProperty("name", out var n) ? n.GetString() : "Untitled",
-                createdAt = conv.TryGetProperty("createdAt", out var c) ? c.GetString() : null,
+                createdAt = createdAtStr,
                 messageCount = conv.TryGetProperty("messages", out var msgs) ? msgs.GetArrayLength() : 0
             });
         }
     }
-    return Results.Ok(conversations.OrderByDescending(c => ((dynamic)c).createdAt));
+    return Results.Ok(conversations.OrderByDescending(c => c.createdAt));
 });
 
 app.MapGet("/api/conversations/{id}", async (string id, IConnectionMultiplexer redis) =>
@@ -245,7 +292,7 @@ app.MapGet("/api/prompts", async (IConnectionMultiplexer redis) =>
     var server = redis.GetServer(redis.GetEndPoints().First());
     var keys = server.Keys(pattern: "prompt:*").ToList();
 
-    var prompts = new List<object>();
+    var prompts = new List<JsonElement>();
     foreach (var key in keys)
     {
         var data = await db.StringGetAsync(key);
@@ -289,7 +336,7 @@ app.MapGet("/api/system-prompts", async (IConnectionMultiplexer redis) =>
     var server = redis.GetServer(redis.GetEndPoints().First());
     var keys = server.Keys(pattern: "systemprompt:*").ToList();
 
-    var prompts = new List<object>();
+    var prompts = new List<JsonElement>();
     foreach (var key in keys)
     {
         var data = await db.StringGetAsync(key);
@@ -298,7 +345,8 @@ app.MapGet("/api/system-prompts", async (IConnectionMultiplexer redis) =>
             prompts.Add(JsonSerializer.Deserialize<JsonElement>(data.ToString()));
         }
     }
-    return Results.Ok(prompts.OrderBy(p => ((dynamic)p).name));
+    // Return unsorted - avoid LINQ OrderBy issues with JsonElement
+    return Results.Ok(prompts);
 });
 
 app.MapPost("/api/system-prompts", async (JsonElement body, IConnectionMultiplexer redis) =>
@@ -323,4 +371,4 @@ app.MapDelete("/api/system-prompts/{id}", async (string id, IConnectionMultiplex
     return Results.NoContent();
 });
 
-app.Run("http://0.0.0.0:5000");
+app.Run();
