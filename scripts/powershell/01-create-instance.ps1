@@ -57,6 +57,45 @@ if (-not (Test-Path $ubuntuAppx)) {
 Write-KhaosLog -Step "Prerequisites" -Status "SUCCESS" -Message "Prerequisites met"
 
 # ============================================================================
+# STEP 1.5: Configure WSL to prevent auto-shutdown
+# ============================================================================
+# Per Microsoft docs: "If you have no open file handles to Windows processes, 
+# the WSL VM will automatically be shut down."
+# https://learn.microsoft.com/en-us/windows/wsl/faq#can-i-use-wsl-for-production-scenarios-
+# 
+# Solution: The start script (04-start-instance.ps1) launches a background 
+# PowerShell process that maintains a connection to keep WSL alive.
+# We also set vmIdleTimeout=-1 as an additional safety measure.
+Write-KhaosLog -Step "WSL Config" -Status "START" -Message "Configuring .wslconfig settings"
+
+$wslConfigPath = Join-Path $env:USERPROFILE ".wslconfig"
+$wslConfigNeeded = $true
+
+if (Test-Path $wslConfigPath) {
+    $currentConfig = Get-Content $wslConfigPath -Raw
+    if ($currentConfig -match "vmIdleTimeout\s*=\s*-1") {
+        $wslConfigNeeded = $false
+        Write-KhaosLog -Step "WSL Config" -Status "INFO" -Message ".wslconfig already configured"
+    }
+}
+
+if ($wslConfigNeeded) {
+    # Create or update .wslconfig with vmIdleTimeout=-1
+    $wslConfig = @"
+[wsl2]
+networkingMode=nat
+vmIdleTimeout=-1
+"@
+    $wslConfig | Set-Content $wslConfigPath -Encoding UTF8
+    Write-KhaosLog -Step "WSL Config" -Status "SUCCESS" -Message ".wslconfig updated with vmIdleTimeout=-1"
+    
+    # Shutdown WSL to apply the new config
+    Write-KhaosLog -Step "WSL Config" -Status "INFO" -Message "Restarting WSL to apply configuration..."
+    wsl --shutdown 2>$null
+    Start-Sleep -Seconds 2
+}
+
+# ============================================================================
 # STEP 2: Check for existing instance
 # ============================================================================
 Write-KhaosLog -Step "Check Instance" -Status "START" -Message "Checking for existing instance: $instanceName"

@@ -83,9 +83,12 @@ if ($LASTEXITCODE -eq 0) {
 }
 
 # Delete the instance directory unless KeepData is specified
-$instanceDir = Join-Path $KhaosConfig.Paths.Instances $InstanceName
+$instanceDir = $null
+if ($KhaosConfig.InstanceRoot) {
+    $instanceDir = Join-Path $KhaosConfig.InstanceRoot $InstanceName
+}
 
-if (Test-Path $instanceDir) {
+if ($instanceDir -and (Test-Path $instanceDir)) {
     if ($KeepData) {
         Write-KhaosLog -Status "INFO" -Step "Keep Data" -Message "Keeping instance data at: $instanceDir"
     } else {
@@ -93,6 +96,8 @@ if (Test-Path $instanceDir) {
         Remove-Item -Path $instanceDir -Recurse -Force
         Write-KhaosLog -Status "SUCCESS" -Step "Delete Files" -Message "Instance files removed"
     }
+} elseif (-not $instanceDir) {
+    Write-KhaosLog -Status "INFO" -Step "Delete Files" -Message "No local instance directory configured"
 }
 
 Write-Host ""

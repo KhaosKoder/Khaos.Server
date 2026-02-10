@@ -24,6 +24,13 @@ test.describe('Navigation', () => {
     await expect(page.locator('text=Redis Cache Manager')).toBeVisible();
   });
 
+  test('can navigate to Data page', async ({ page }) => {
+    await page.goto('/');
+    await page.click('a:has-text("Data"), button:has-text("Data")');
+    await expect(page).toHaveURL(/.*\/data/);
+    await expect(page.locator('text=Persistent Data Manager')).toBeVisible();
+  });
+
   test('can navigate to Chat page', async ({ page }) => {
     await page.goto('/');
     await page.click('text=Chat');
@@ -183,5 +190,233 @@ test.describe('Home Dashboard', () => {
     
     // Should show System Info section
     await expect(page.locator('.v-card-title:has-text("System Info")')).toBeVisible();
+  });
+});
+
+// ============================================================================
+// Data UI Tests - Persistent PostgreSQL Data Manager
+// ============================================================================
+test.describe('Data UI', () => {
+  test.beforeEach(async ({ request, page }) => {
+    // Clear persistent data before each test
+    await request.delete('/api/data');
+    await page.goto('/data');
+  });
+
+  test('shows empty state when no data', async ({ page }) => {
+    await expect(page.locator('text=No data stored')).toBeVisible();
+  });
+
+  test('shows PostgreSQL info banner', async ({ page }) => {
+    await expect(page.locator('text=Data stored in PostgreSQL')).toBeVisible();
+    await expect(page.locator('text=5-min TTL')).toBeVisible();
+  });
+
+  test('can add a new persistent key/value pair', async ({ page }) => {
+    // Fill the key and value inputs
+    const keyInput = page.locator('input').first();
+    const valueInput = page.locator('input').nth(1);
+    
+    await keyInput.fill('persistent-ui-key');
+    await valueInput.fill('persistent-ui-value');
+    
+    // Click Add button
+    await page.click('button:has-text("Add")');
+    
+    // Wait for the table to update
+    await page.waitForTimeout(500);
+    
+    // Verify the key appears with code styling
+    await expect(page.locator('code:has-text("persistent-ui-key")')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('td:has-text("persistent-ui-value")')).toBeVisible();
+  });
+
+  test('shows created and updated timestamps', async ({ page, request }) => {
+    // Create a key via API
+    await request.post('/api/data/timestamp-test', { data: { value: 'test-value' } });
+    
+    await page.reload();
+    
+    // Should show timestamps in table
+    const row = page.locator('tr', { has: page.locator('code:has-text("timestamp-test")') });
+    // Timestamps should be visible (formatted date strings)
+    await expect(row.locator('td').nth(2)).not.toBeEmpty();
+    await expect(row.locator('td').nth(3)).not.toBeEmpty();
+  });
+
+  test('can delete a persistent key', async ({ page, request }) => {
+    // Pre-populate a key via API
+    await request.post('/api/data/delete-data-key', { data: { value: 'delete-me' } });
+    
+    await page.reload();
+    await expect(page.locator('code:has-text("delete-data-key")')).toBeVisible();
+    
+    // Click delete button
+    const row = page.locator('tr', { has: page.locator('code:has-text("delete-data-key")') });
+    await row.locator('button:has(.mdi-delete)').click();
+    
+    // Wait for deletion
+    await page.waitForResponse(resp => resp.url().includes('/api/data'));
+    
+    // Verify key is gone
+    await expect(page.locator('code:has-text("delete-data-key")')).not.toBeVisible();
+  });
+
+  test('can clear all persistent data', async ({ page, request }) => {
+    // Pre-populate keys
+    await request.post('/api/data/clear-data-1', { data: { value: 'v1' } });
+    await request.post('/api/data/clear-data-2', { data: { value: 'v2' } });
+    
+    await page.reload();
+    
+    // Verify keys are shown
+    await expect(page.locator('code:has-text("clear-data-1")')).toBeVisible();
+    await expect(page.locator('code:has-text("clear-data-2")')).toBeVisible();
+    
+    // Handle the confirm dialog
+    page.on('dialog', dialog => dialog.accept());
+    
+    // Click Clear All
+    await page.click('button:has-text("Clear All")');
+    
+    // Wait for response
+    await page.waitForResponse(resp => resp.url().includes('/api/data'));
+    
+    // Verify empty state
+    await expect(page.locator('text=No data stored')).toBeVisible();
+  });
+
+  test('data persists after page refresh (database backed)', async ({ page, request }) => {
+    // Create a key
+    await request.post('/api/data/persist-test', { data: { value: 'should-persist' } });
+    
+    // Clear Redis cache to prove PostgreSQL persistence
+    await request.delete('/api/redis');
+    
+    // Reload the page
+    await page.reload();
+    
+    // Key should still be visible (from database)
+    await expect(page.locator('code:has-text("persist-test")')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('td:has-text("should-persist")')).toBeVisible();
+  });
+});
+
+// ============================================================================
+// Filesystem UI Tests
+// ============================================================================
+test.describe('Filesystem UI', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/filesystem');
+  });
+
+  test('shows filesystem browser interface', async ({ page }) => {
+    await expect(page.locator('text=Filesystem Browser')).toBeVisible();
+    await expect(page.locator('text=Browse Directory')).toBeVisible();
+    await expect(page.locator('input[type="text"]').first()).toBeVisible(); // Path input
+    await expect(page.locator('button:has-text("Browse")')).toBeVisible();
+  });
+
+  test('shows quick path chips', async ({ page }) => {
+    await expect(page.locator('text=Quick paths:')).toBeVisible();
+    await expect(page.locator('.v-chip:has-text("Apps")')).toBeVisible();
+    await expect(page.locator('.v-chip:has-text("Logs")')).toBeVisible();
+    await expect(page.locator('.v-chip:has-text("Home")')).toBeVisible();
+    await expect(page.locator('.v-chip:has-text("Temp")')).toBeVisible();
+  });
+
+  test('can browse to /opt/khaos directory', async ({ page }) => {
+    // Click the Apps quick path
+    await page.click('.v-chip:has-text("Apps")');
+    
+    // Wait for the file listing to load
+    await page.waitForResponse(resp => resp.url().includes('/api/filesystem/list'));
+    
+    // Should show files/directories
+    await expect(page.locator('table')).toBeVisible({ timeout: 5000 });
+  });
+
+  test('can browse to directory by entering path', async ({ page }) => {
+    // Enter a path
+    const pathInput = page.locator('input').first();
+    await pathInput.clear();
+    await pathInput.fill('/tmp');
+    
+    // Click Browse
+    await page.click('button:has-text("Browse")');
+    
+    // Wait for response
+    await page.waitForResponse(resp => resp.url().includes('/api/filesystem/list'));
+    
+    // Path should be shown
+    await expect(page.locator('text=/tmp')).toBeVisible();
+  });
+
+  test('shows file metadata on selection', async ({ page }) => {
+    // Browse to a directory with files
+    await page.click('.v-chip:has-text("Apps")');
+    await page.waitForResponse(resp => resp.url().includes('/api/filesystem/list'));
+    
+    // Wait for table to appear
+    const table = page.locator('table');
+    if (await table.isVisible()) {
+      // Click on a row to select it
+      const firstRow = page.locator('table tbody tr').first();
+      if (await firstRow.isVisible()) {
+        await firstRow.click();
+        
+        // Should show file info panel with name and path
+        await expect(page.locator('.v-card-title:has(.mdi-folder), .v-card-title:has(.mdi-file)')).toBeVisible({ timeout: 3000 });
+      }
+    }
+  });
+
+  test('can navigate to parent directory', async ({ page }) => {
+    // Browse to a subdirectory
+    const pathInput = page.locator('input').first();
+    await pathInput.clear();
+    await pathInput.fill('/opt/khaos/apps');
+    await page.click('button:has-text("Browse")');
+    await page.waitForResponse(resp => resp.url().includes('/api/filesystem/list'));
+    
+    // Click parent directory link
+    await page.click('text=..');
+    await page.waitForResponse(resp => resp.url().includes('/api/filesystem/list'));
+    
+    // Should now be at /opt/khaos
+    await expect(page.locator('text=/opt/khaos')).toBeVisible();
+  });
+
+  test('shows error for invalid path', async ({ page }) => {
+    const pathInput = page.locator('input').first();
+    await pathInput.clear();
+    await pathInput.fill('/nonexistent/path/xyz');
+    
+    await page.click('button:has-text("Browse")');
+    
+    // Should show error alert
+    await expect(page.locator('.v-alert:has-text("not found")')).toBeVisible({ timeout: 5000 });
+  });
+
+  test('can toggle recursive option', async ({ page }) => {
+    // Find and click the recursive checkbox
+    const recursiveCheckbox = page.locator('input[type="checkbox"]');
+    await recursiveCheckbox.check();
+    
+    // Now browse
+    await page.click('.v-chip:has-text("Apps")');
+    await page.waitForResponse(resp => resp.url().includes('recursive=true'));
+  });
+
+  test('navigation shows Files link', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('a:has-text("Files"), button:has-text("Files")')).toBeVisible();
+  });
+
+  test('can navigate to Filesystem from home', async ({ page }) => {
+    await page.goto('/');
+    await page.click('a:has-text("Files"), button:has-text("Files")');
+    await expect(page).toHaveURL(/.*\/filesystem/);
+    await expect(page.locator('text=Filesystem Browser')).toBeVisible();
   });
 });

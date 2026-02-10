@@ -84,6 +84,19 @@ echo "All services stopped."
     Start-Sleep -Seconds 2
 }
 
+# Kill any keepalive PowerShell processes for this instance
+Write-KhaosLog -Status "START" -Step "Kill Keepalive" -Message "Stopping keepalive processes..."
+$keepaliveProcesses = Get-WmiObject Win32_Process -Filter "Name='powershell.exe'" | 
+    Where-Object { $_.CommandLine -match "wsl.*$InstanceName.*sleep" }
+if ($keepaliveProcesses) {
+    $keepaliveProcesses | ForEach-Object { 
+        Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue 
+    }
+    Write-KhaosLog -Status "SUCCESS" -Step "Kill Keepalive" -Message "Keepalive processes stopped"
+} else {
+    Write-KhaosLog -Status "INFO" -Step "Kill Keepalive" -Message "No keepalive processes found"
+}
+
 Write-KhaosLog -Status "START" -Step "Terminate WSL" -Message "Terminating WSL instance..."
 
 # Terminate the WSL instance

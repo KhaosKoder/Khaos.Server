@@ -9,6 +9,10 @@ import App from './App.vue'
 import Home from './views/Home.vue'
 import Chat from './views/Chat.vue'
 import Redis from './views/Redis.vue'
+import Data from './views/Data.vue'
+import Filesystem from './views/Filesystem.vue'
+import Disk from './views/Disk.vue'
+import Rag from './views/Rag.vue'
 
 const vuetify = createVuetify({
   components,
@@ -23,7 +27,11 @@ const router = createRouter({
   routes: [
     { path: '/', component: Home },
     { path: '/chat', component: Chat },
-    { path: '/redis', component: Redis }
+    { path: '/redis', component: Redis },
+    { path: '/data', component: Data },
+    { path: '/filesystem', component: Filesystem },
+    { path: '/disk', component: Disk },
+    { path: '/rag', component: Rag }
   ]
 })
 

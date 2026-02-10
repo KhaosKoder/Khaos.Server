@@ -101,6 +101,12 @@ if [ -d "$TEMPLATE_DIR/web" ]; then
         log "INFO" "Copy Templates" "Copied view components"
     fi
     
+    # Copy stores (if any exist)
+    if [ -d "$TEMPLATE_DIR/web/src/stores" ] && [ -n "$(ls -A $TEMPLATE_DIR/web/src/stores 2>/dev/null)" ]; then
+        cp "$TEMPLATE_DIR/web/src/stores/"* "$WEB_PATH/src/stores/" 2>/dev/null
+        log "INFO" "Copy Templates" "Copied store files"
+    fi
+    
     log "SUCCESS" "Copy Templates" "All template files copied"
 else
     log "FAIL" "Copy Templates" "Template directory not found: $TEMPLATE_DIR/web"

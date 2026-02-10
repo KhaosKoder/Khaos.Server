@@ -3,7 +3,9 @@
 
 param(
     [Parameter(Mandatory=$true)]
-    [string]$Name
+    [string]$Name,
+    
+    [switch]$NoKeepalive  # Don't start background keepalive process
 )
 
 $ErrorActionPreference = "Stop"
@@ -85,11 +87,38 @@ if ($webRunning -and $apiRunning) {
     Write-KhaosLog -Status "WARN" -Step "Start Services" -Message "Some services may not be ready: $($missing -join ', ')"
 }
 
+# ============================================================================
+# Start background keepalive process
+# ============================================================================
+# WSL2 auto-shuts down when there are no Windows processes with file handles 
+# to the VM. We start a background job to keep the instance alive.
+# Per Microsoft docs: https://learn.microsoft.com/en-us/windows/wsl/faq
+
+if (-not $NoKeepalive) {
+    Write-KhaosLog -Status "START" -Step "Keepalive" -Message "Starting background keepalive process..."
+    
+    # Start a hidden background PowerShell process that keeps a WSL connection open
+    $keepaliveScript = @"
+while (`$true) { 
+    `$null = wsl -d $InstanceName -- sleep 60 2>&1
+    if (`$LASTEXITCODE -ne 0) { break }
+}
+"@
+    
+    $bytes = [System.Text.Encoding]::Unicode.GetBytes($keepaliveScript)
+    $encodedCommand = [Convert]::ToBase64String($bytes)
+    
+    # Start as a hidden background process
+    Start-Process -WindowStyle Hidden -FilePath "powershell.exe" -ArgumentList "-NoProfile", "-EncodedCommand", $encodedCommand
+    
+    Write-KhaosLog -Status "SUCCESS" -Step "Keepalive" -Message "Background keepalive started - instance will stay running"
+}
+
 Write-Host ""
 Write-KhaosLog -Status "SUCCESS" -Step "Complete" -Message "$InstanceName is ready!"
 Write-Host ""
 Write-Host "  Open in browser: " -NoNewline -ForegroundColor White
 Write-Host "http://localhost:$webPort" -ForegroundColor Green
 Write-Host ""
-Write-Host "  For development: wsl -d $InstanceName -u root -- /opt/khaos/scripts/dev-start.sh" -ForegroundColor Gray
+Write-Host "  To stop instance: .\05-stop-instance.ps1 -Name $Name" -ForegroundColor Gray
 Write-Host ""

@@ -161,6 +161,7 @@ WSL instances run with **systemd enabled** (`/etc/wsl.conf` has `systemd=true`).
 | `04-start-instance.ps1` | Start instance and verify all services |
 | `05-stop-instance.ps1` | Gracefully stop services and terminate WSL |
 | `06-delete-instance.ps1` | Unregister WSL distribution (with confirmation) |
+| `07-instance-status.ps1` | Detailed status: running services, ports, URLs |
 
 ### Phase 2: Bash Scripts (Inside WSL)
 
@@ -287,6 +288,11 @@ Every script must log:
 | **LLM Operations** |||
 | `POST /api/chat` | POST | Send message to Ollama, return response |
 | `GET /api/chat/models` | GET | List available Ollama models |
+| **Filesystem Operations** |||
+| `GET /api/filesystem/list` | GET | List files in directory (path, recursive params) |
+| `GET /api/filesystem/info` | GET | Get file/directory metadata |
+| `GET /api/filesystem/read` | GET | Read file contents (text or base64 for binary) |
+| `POST /api/filesystem/copy` | POST | Copy file to new location |
 
 ### PostgreSQL Schema
 ```sql
@@ -298,6 +304,16 @@ CREATE TABLE kv_store (
 );
 ```
 
+### PostgreSQL Connection Details
+| Parameter | Value |
+|-----------|-------|
+| **Host** | `127.0.0.1` or `localhost` |
+| **Port** | `KHAOS_POSTGRES_PORT` (default 5432, varies by instance) |
+| **Database** | `khaosdb` |
+| **Username** | `khaos` |
+| **Password** | `khaos` |
+| **Connection String** | `Host=127.0.0.1;Port={port};Database=khaosdb;Username=khaos;Password=khaos` |
+
 ### Vue 3 + Vuetify Pages
 
 | Route | Description |
@@ -306,6 +322,15 @@ CREATE TABLE kv_store (
 | `/redis` | Redis cache manager (ephemeral) |
 | `/data` | PostgreSQL data manager (persistent) |
 | `/chat` | LLM chat interface |
+| `/filesystem` | Filesystem browser (view/copy files) |
+
+### Filesystem Browser Features (Vue)
+- Browse server directories
+- View files with metadata (size, dates)
+- Read text file contents
+- Copy files to new locations
+- Quick path shortcuts (Apps, Logs, Home, Temp)
+- Recursive directory listing option
 
 ### Redis Manager Features (Vue)
 - View all keys in a table

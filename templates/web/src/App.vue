@@ -10,7 +10,11 @@
       <v-spacer></v-spacer>
       <v-btn to="/" variant="text">Home</v-btn>
       <v-btn to="/chat" variant="text">Chat</v-btn>
+      <v-btn to="/rag" variant="text">RAG</v-btn>
       <v-btn to="/redis" variant="text">Redis</v-btn>
+      <v-btn to="/data" variant="text">Data</v-btn>
+      <v-btn to="/filesystem" variant="text">Files</v-btn>
+      <v-btn to="/disk" variant="text">Disk</v-btn>
       <v-btn :href="swaggerUrl" target="_blank" variant="text">API Docs</v-btn>
       
       <!-- Folders Menu -->

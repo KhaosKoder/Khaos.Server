@@ -48,6 +48,37 @@ if ($instances -notmatch $instanceName) {
 Write-KhaosLog -Step "Verify Instance" -Status "SUCCESS" -Message "Instance found"
 
 # ============================================================================
+# STEP 1.5: Configure WSL to prevent auto-shutdown (vmIdleTimeout)
+# ============================================================================
+# Per Microsoft docs: WSL2 auto-shuts down VMs when there are no open file
+# handles to Windows processes. Setting vmIdleTimeout=-1 disables this.
+# https://learn.microsoft.com/en-us/windows/wsl/wsl-config
+Write-KhaosLog -Step "WSL Config" -Status "START" -Message "Configuring .wslconfig to prevent auto-shutdown"
+
+$wslConfigPath = Join-Path $env:USERPROFILE ".wslconfig"
+$wslConfigNeeded = $true
+
+if (Test-Path $wslConfigPath) {
+    $currentConfig = Get-Content $wslConfigPath -Raw
+    if ($currentConfig -match "vmIdleTimeout\s*=\s*-1") {
+        $wslConfigNeeded = $false
+        Write-KhaosLog -Step "WSL Config" -Status "INFO" -Message ".wslconfig already configured"
+    }
+}
+
+if ($wslConfigNeeded) {
+    # Create or update .wslconfig with vmIdleTimeout=-1
+    $wslConfig = @"
+[wsl2]
+networkingMode=nat
+vmIdleTimeout=-1
+"@
+    $wslConfig | Set-Content $wslConfigPath -Encoding UTF8
+    Write-KhaosLog -Step "WSL Config" -Status "SUCCESS" -Message ".wslconfig updated - WSL instances will not auto-shutdown"
+    Write-KhaosLog -Step "WSL Config" -Status "INFO" -Message "Note: Requires WSL restart to take effect (will happen at end of setup)"
+}
+
+# ============================================================================
 # STEP 2: Ensure khaos user exists and mount cache
 # ============================================================================
 Write-KhaosLog -Step "Prepare Instance" -Status "START" -Message "Preparing instance (user + cache mount)"
@@ -116,23 +147,27 @@ foreach ($script in $scripts) {
 Write-KhaosLog -Step "Copy Scripts" -Status "SUCCESS" -Message "$($scripts.Count) scripts copied"
 
 # ============================================================================
-# STEP 4: Copy templates to instance (fallback if mount failed)
+# STEP 4: Copy templates to instance (ALWAYS from source, not cache)
 # ============================================================================
-Write-KhaosLog -Step "Copy Templates" -Status "START" -Message "Ensuring templates are available"
+Write-KhaosLog -Step "Copy Templates" -Status "START" -Message "Copying latest templates to instance"
 
-# Check if templates are accessible via mount
-$templatesAccessible = wsl -d $instanceName -u root -- bash -c "test -f /mnt/khaos-cache/templates/api/Program.cs && echo 'YES' || echo 'NO'"
-
-if ($templatesAccessible -match "NO") {
-    Write-KhaosLog -Step "Copy Templates" -Status "INFO" -Message "Copying templates via UNC path..."
-    
+# ALWAYS use the source templates directory, never the cache
+# This ensures new instances always get the latest code
+$sourceTemplates = Join-Path $PSScriptRoot "..\..\templates"
+if (-not (Test-Path $sourceTemplates)) {
+    # Fallback to cache if source not found
     $sourceTemplates = Join-Path $config.CacheRoot "templates"
-    $wslTemplatesPath = "\\wsl$\$instanceName\mnt\khaos-cache\templates"
-    
-    # Ensure directory exists
-    wsl -d $instanceName -u root -- mkdir -p /mnt/khaos-cache/templates/api
-    wsl -d $instanceName -u root -- mkdir -p /mnt/khaos-cache/templates/web/src/views
-    wsl -d $instanceName -u root -- mkdir -p /mnt/khaos-cache/templates/web/src/stores
+    Write-KhaosLog -Step "Copy Templates" -Status "WARN" -Message "Source templates not found, using cache"
+}
+$wslTemplatesPath = "\\wsl$\$instanceName\mnt\khaos-cache\templates"
+
+# Always copy fresh templates
+Write-KhaosLog -Step "Copy Templates" -Status "INFO" -Message "Copying from: $sourceTemplates"
+
+# Ensure directory exists
+wsl -d $instanceName -u root -- mkdir -p /mnt/khaos-cache/templates/api
+wsl -d $instanceName -u root -- mkdir -p /mnt/khaos-cache/templates/web/src/views
+wsl -d $instanceName -u root -- mkdir -p /mnt/khaos-cache/templates/web/src/stores
     
     # Copy API templates
     if (Test-Path "$sourceTemplates\api") {
@@ -178,12 +213,20 @@ if ($templatesAccessible -match "NO") {
                 [System.IO.File]::WriteAllText($destPath, $content, $utf8NoBom)
             }
         }
+        
+        # src/stores files (if any exist)
+        if (Test-Path "$sourceTemplates\web\src\stores") {
+            Get-ChildItem -Path "$sourceTemplates\web\src\stores" -File | ForEach-Object {
+                $content = Get-Content $_.FullName -Raw
+                $content = $content -replace "`r`n", "`n"
+                $destPath = "$wslTemplatesPath\web\src\stores\$($_.Name)"
+                $utf8NoBom = New-Object System.Text.UTF8Encoding $false
+                [System.IO.File]::WriteAllText($destPath, $content, $utf8NoBom)
+            }
+        }
     }
     
-    Write-KhaosLog -Step "Copy Templates" -Status "SUCCESS" -Message "Templates copied via UNC path"
-} else {
-    Write-KhaosLog -Step "Copy Templates" -Status "SUCCESS" -Message "Templates accessible via mount"
-}
+    Write-KhaosLog -Step "Copy Templates" -Status "SUCCESS" -Message "Templates copied to instance"
 
 # ============================================================================
 # STEP 5: Determine model to use

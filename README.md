@@ -96,7 +96,9 @@ cd khaos-server/scripts/powershell
 | 🏠 **Dashboard** | http://localhost:3000 | Status overview & quick actions |
 | 💬 **AI Chat** | http://localhost:3000/chat | Full-featured chat interface |
 | 📦 **Redis Manager** | http://localhost:3000/redis | View/edit cached data |
-| 📚 **API Docs** | http://localhost:5000/swagger | Interactive API explorer |
+| � **Data Manager** | http://localhost:3000/data | PostgreSQL persistent storage |
+| 📁 **File Browser** | http://localhost:3000/filesystem | Browse & view server files |
+| �📚 **API Docs** | http://localhost:5000/swagger | Interactive API explorer |
 
 ---
 
@@ -197,6 +199,9 @@ git diff HEAD~1 | curl -X POST http://localhost:5000/api/chat \
 
 # List all instances
 .\03-list-instances.ps1
+
+# Detailed status with ports and service health
+.\07-instance-status.ps1
 ```
 
 ### Multiple Environments
@@ -274,6 +279,46 @@ curl -X PUT http://localhost:5000/api/redis/my-key \
   -d '{"value": "my-data"}'
 ```
 
+### Persistent Data (PostgreSQL)
+```bash
+# Store persistent data
+curl -X POST http://localhost:5000/api/data/my-key \
+  -H "Content-Type: application/json" \
+  -d '{"value": {"name": "John", "active": true}}'
+
+# Get persistent data
+curl http://localhost:5000/api/data/my-key
+```
+
+### Filesystem Operations
+```bash
+# List files in a directory
+curl "http://localhost:5000/api/filesystem/list?path=/opt/khaos"
+
+# Get file info
+curl "http://localhost:5000/api/filesystem/info?path=/opt/khaos/apps/api/Program.cs"
+
+# Read file contents
+curl "http://localhost:5000/api/filesystem/read?path=/etc/khaos/khaos.conf"
+```
+
+### PostgreSQL Connection
+Connect directly to PostgreSQL for advanced queries:
+
+| Parameter | Value |
+|-----------|-------|
+| Host | `localhost` |
+| Port | `5432` (default) or `KHAOS_POSTGRES_PORT` |
+| Database | `khaosdb` |
+| Username | `khaos` |
+| Password | `khaos` |
+
+```bash
+# Connect via psql inside WSL
+wsl -d khaos-dev -u khaos
+psql -h localhost -U khaos -d khaosdb
+```
+
 ### Save/Load Conversations
 ```bash
 # Save conversation
@@ -291,9 +336,10 @@ See [API Documentation](http://localhost:5000/swagger) for the complete referenc
 
 ## 📖 Documentation
 
-- **[User Guide](docs/GUIDE.md)** - Detailed usage instructions
-- **[Specification](docs/Specification.md)** - Technical architecture
-- **[Azure DevOps Use Case](docs/USE_CASE_AZURE_DEVOPS.md)** - Real-world example
+- **[User Guide](GUIDE.md)** - Detailed usage instructions
+- **[Specification](Specification.md)** - Technical architecture
+- **[Troubleshooting](TROUBLESHOOTING.md)** - Common issues and solutions
+- **[Azure DevOps Use Case](USECASE-DEVOPS.md)** - Real-world example
 
 ---
 
